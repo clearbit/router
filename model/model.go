@@ -118,11 +118,13 @@ func newGzipConfig() *GzipConfig {
 // AppConfig encapsulates the configuration for all routes to a single back end.
 type AppConfig struct {
 	Name           string
+	UpstreamName   string
 	Domains        []string `key:"domains" constraint:"(?i)^((([a-z0-9]+(-*[a-z0-9]+)*)|((\\*\\.)?[a-z0-9]+(-*[a-z0-9]+)*\\.)+[a-z0-9]+(-*[a-z0-9]+)+)(\\s*,\\s*)?)+$"`
 	Whitelist      []string `key:"whitelist" constraint:"^((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\\/([0-9]|[1-2][0-9]|3[0-2]))?(\\s*,\\s*)?)+$"`
 	ConnectTimeout string   `key:"connectTimeout" constraint:"^[1-9]\\d*(ms|[smhdwMy])?$"`
 	TCPTimeout     string   `key:"tcpTimeout" constraint:"^[1-9]\\d*(ms|[smhdwMy])?$"`
 	ServiceIP      string
+	Endpoints      []string
 	CertMappings   map[string]string `key:"certificates" constraint:"(?i)^((([a-z0-9]+(-*[a-z0-9]+)*)|((\\*\\.)?[a-z0-9]+(-*[a-z0-9]+)*\\.)+[a-z0-9]+(-*[a-z0-9]+)+):([a-z0-9]+(-*[a-z0-9]+)*)(\\s*,\\s*)?)+$"`
 	Certificates   map[string]*Certificate
 	Available      bool
@@ -361,7 +363,10 @@ func buildAppConfig(kubeClient *kubernetes.Clientset, service v1.Service, router
 	// if app name and Namespace are not same then combine the two as it
 	// makes deis services (as an example) clearer, such as deis/controller
 	if appConfig.Name != service.Namespace {
+		appConfig.UpstreamName = service.Namespace + "." + appConfig.Name
 		appConfig.Name = service.Namespace + "/" + appConfig.Name
+	} else {
+		appConfig.UpstreamName = appConfig.Name
 	}
 	err := modeler.MapToModel(service.Annotations, "", appConfig)
 	if err != nil {
@@ -403,7 +408,15 @@ func buildAppConfig(kubeClient *kubernetes.Clientset, service v1.Service, router
 	if err != nil {
 		return nil, err
 	}
-	appConfig.Available = len(endpoints.Subsets) > 0 && len(endpoints.Subsets[0].Addresses) > 0
+	for _, subset := range endpoints.Subsets {
+		for _, port := range subset.Ports {
+			for _, address := range subset.Addresses {
+				endpoint := fmt.Sprintf("%v:%v", address.IP, port.Port)
+				appConfig.Endpoints = append(appConfig.Endpoints, endpoint)
+			}
+		}
+	}
+	appConfig.Available = len(appConfig.Endpoints) > 0
 	return appConfig, nil
 }
 

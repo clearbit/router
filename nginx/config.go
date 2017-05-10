@@ -207,7 +207,13 @@ http {
 		}
 	}
 
-	{{range $appConfig := $routerConfig.AppConfigs}}{{range $domain := $appConfig.Domains}}server {
+	{{range $appConfig := $routerConfig.AppConfigs}}
+	{{if $appConfig.Available}}upstream {{$appConfig.UpstreamName}} {
+		{{range $endpoint := $appConfig.Endpoints}}
+			server {{$endpoint}};
+		{{end}}
+	}{{end}}
+	{{range $domain := $appConfig.Domains}}server {
 		listen 8080{{ if $routerConfig.UseProxyProtocol }} proxy_protocol{{ end }};
 		server_name {{ if contains "." $domain }}{{ $domain }}{{ else if ne $routerConfig.PlatformDomain "" }}{{ $domain }}.{{ $routerConfig.PlatformDomain }}{{ else }}~^{{ $domain }}\.(?<domain>.+)${{ end }};
 		server_name_in_redirect off;
@@ -265,7 +271,7 @@ http {
 
 			{{ if $hstsConfig.Enabled }}add_header Strict-Transport-Security $sts always;{{ end }}
 
-			proxy_pass http://{{$appConfig.ServiceIP}}:80;{{ else }}return 503;{{ end }}
+			proxy_pass http://{{$appConfig.UpstreamName}};{{ else }}return 503;{{ end }}
 		}
 		{{ if $appConfig.Maintenance }}error_page 503 @maintenance;
 			location @maintenance {
